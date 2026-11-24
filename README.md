@@ -4,6 +4,8 @@
 
 调用关系：`业务程序 → New API → 本服务 → 语音识别 → 文字`。
 
+已配置域名访问方案：`https://asr.lakdriya.com`。Nginx 配置文件及 Cloudflare 无源站证书设置见 [deploy/NGINX.md](deploy/NGINX.md)。
+
 当前只包含录音转文字，不包含 Web 业务后台、OSS 采集、Worker、质检评分和 MySQL。已有数据库、录音和 Docker 数据卷不做删除。
 
 ## 1. Ubuntu 22.04 部署
