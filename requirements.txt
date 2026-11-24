@@ -1,0 +1,6 @@
+-r requirements-api.txt
+torch==2.6.0
+faster-whisper==1.1.1
+qwen-asr==0.0.6
+numpy>=1.26,<2
+python-dateutil>=2.8,<3
