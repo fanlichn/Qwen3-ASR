@@ -1,0 +1,37 @@
+# Standalone configuration for a host without an NVIDIA GPU.
+services:
+  api:
+    build:
+      context: .
+      args:
+        BASE_IMAGE: ubuntu:22.04
+        TORCH_INDEX_URL: https://download.pytorch.org/whl/cpu
+        REQUIREMENTS_LOCK: requirements-cpu.lock
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      HF_HOME: /data/huggingface
+      ASR_DEVICE: cpu
+      OMP_NUM_THREADS: "${ASR_CPU_THREADS:-2}"
+      MKL_NUM_THREADS: "${ASR_CPU_THREADS:-2}"
+    ports:
+      - "${ASR_BIND_HOST:-0.0.0.0}:${ASR_PORT:-8080}:8080"
+    volumes:
+      - hf_cache:/data/huggingface
+    shm_size: 1gb
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/readyz', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20m
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  hf_cache:

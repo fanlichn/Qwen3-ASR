@@ -53,3 +53,13 @@ def test_compose_only_runs_gpu_api():
     assert api['deploy']['resources']['reservations']['devices'][0]['capabilities'] == ['gpu']
     assert 'mysql_data' not in compose.get('volumes', {})
     assert '/readyz' in str(api['healthcheck'])
+
+
+def test_cpu_compose_has_no_gpu_reservation():
+    root = Path(__file__).resolve().parents[1]
+    compose = yaml.safe_load((root / 'docker-compose.cpu.yml').read_text(encoding='utf-8'))
+    assert set(compose['services']) == {'api'}
+    api = compose['services']['api']
+    assert 'deploy' not in api
+    assert api['environment']['ASR_DEVICE'] == 'cpu'
+    assert api['build']['args']['REQUIREMENTS_LOCK'] == 'requirements-cpu.lock'

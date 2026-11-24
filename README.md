@@ -51,6 +51,17 @@ docker compose -f docker-compose.yml exec api python3 -c "import torch; print('C
 
 就绪接口应返回 `{"status":"ready"}`。`/healthz` 仅用于进程存活检测。模型启动失败时容器退出并按重启策略重试，不会伪报已就绪。
 
+### 没有 NVIDIA GPU 的服务器
+
+提供单独的 CPU 配置，仍使用 Ubuntu 22.04，但安装 CPU 版 PyTorch，不要求 NVIDIA 驱动。识别速度明显慢于 GPU，不应将 CPU 测试结果当成 GPU 性能验证。完成 `.env` 配置后执行：
+
+```bash
+docker compose -f docker-compose.cpu.yml up -d --build api
+docker compose -f docker-compose.cpu.yml logs --tail=100 -f api
+```
+
+此配置强制 `ASR_DEVICE=cpu`，默认使用 2 个计算线程，可在 `.env` 设置 `ASR_CPU_THREADS`。同一时间只启动 CPU 或 GPU 其中一种配置。以后换到具备 GPU 的服务器，再使用上面的 `docker-compose.yml`。
+
 ## 2. 先直接测试服务
 
 下面的命令交互读取密钥，不在命令历史里写明文。将录音路径替换为你的实际文件：
