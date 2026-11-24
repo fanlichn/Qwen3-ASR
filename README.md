@@ -4,7 +4,7 @@
 
 调用关系：`业务程序 → New API → 本服务 → 语音识别 → 文字`。
 
-已配置域名访问方案：`https://asr.lakdriya.com`。Nginx 配置文件及 Cloudflare 无源站证书设置见 [deploy/NGINX.md](deploy/NGINX.md)。
+Nginx 配置模板及 Cloudflare 无源站证书设置见 [deploy/NGINX.md](deploy/NGINX.md)。模板中的 `asr.example.com` 需替换为你的实际域名。
 
 当前只包含录音转文字，不包含 Web 业务后台、OSS 采集、Worker、质检评分和 MySQL。已有数据库、录音和 Docker 数据卷不做删除。
 
@@ -85,7 +85,7 @@ New API 官方支持 [POST /v1/audio/transcriptions](https://github.com/QuantumN
 | --- | --- |
 | 类型 | OpenAI / OpenAI 兼容 |
 | 名称 | 录音转文字 |
-| 代理地址 / Base URL | `http://本服务IP:8080`，不要附加 `/v1` |
+| 代理地址 / Base URL | `https://你的语音服务域名`，不要附加 `/v1` |
 | 密钥 | 本服务 `.env` 中的 `ASR_API_KEY` |
 | 模型 | 先填 `whisper-1`，无需模型映射 |
 | 分组 | 业务程序令牌有权使用的分组 |
