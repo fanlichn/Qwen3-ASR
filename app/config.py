@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     asr_api_key: SecretStr
     asr_model_path: str = 'Qwen/Qwen3-ASR-1.7B'
     asr_model_name: str = 'qwen3-asr-1.7b'
-    asr_device: str = 'cuda:0'
+    asr_device: str = 'cpu'
     asr_max_upload_mb: int = Field(default=25, ge=1, le=200)
     asr_max_audio_seconds: int = Field(default=1800, ge=1, le=7200)
     asr_chunk_seconds: int = Field(default=25, ge=5, le=25)

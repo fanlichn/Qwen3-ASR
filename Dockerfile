@@ -1,7 +1,7 @@
-ARG BASE_IMAGE=nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+ARG BASE_IMAGE=ubuntu:22.04
 FROM ${BASE_IMAGE}
 
-ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu124
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
 ARG REQUIREMENTS_LOCK=requirements-linux.lock
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -28,5 +28,5 @@ RUN useradd --uid 10001 --create-home asr \
 USER asr
 
 EXPOSE 8080
-# One process per GPU: multiple workers would load multiple copies of the model.
+# One process keeps a single copy of the model in memory.
 CMD ["uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1", "--no-access-log"]

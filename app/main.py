@@ -85,7 +85,7 @@ def create_app(settings: Settings | None = None, transcriber=None) -> FastAPI:
             engine.load()
         except Exception as exc:
             logger.error('ASR startup failed (%s)', type(exc).__name__)
-            raise RuntimeError('ASR startup failed; check GPU availability and model files') from None
+            raise RuntimeError('ASR startup failed; check device availability and model files') from None
         application.state.ready = True
         yield
         application.state.ready = False
@@ -148,7 +148,7 @@ def create_app(settings: Settings | None = None, transcriber=None) -> FastAPI:
         if timestamp_granularities and any(item != 'segment' for item in timestamp_granularities):
             raise HTTPException(400, 'Only segment timestamps are supported')
         if not application.state.inference_slot.acquire(blocking=False):
-            raise HTTPException(503, 'The GPU is busy; retry later', headers={'Retry-After': '5'})
+            raise HTTPException(503, 'Speech recognition is busy; retry later', headers={'Retry-After': '5'})
         try:
             with TemporaryDirectory(prefix='asr-') as directory:
                 audio_path = Path(directory) / 'upload.audio'
@@ -170,7 +170,7 @@ def create_app(settings: Settings | None = None, transcriber=None) -> FastAPI:
             raise
         except Exception as exc:
             logger.error('ASR inference failed (%s)', type(exc).__name__)
-            raise HTTPException(500, 'Speech recognition failed; check service GPU and model status') from None
+            raise HTTPException(500, 'Speech recognition failed; check service device and model status') from None
         finally:
             application.state.inference_slot.release()
             file.file.close()

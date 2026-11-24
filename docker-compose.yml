@@ -5,17 +5,13 @@ services:
     env_file: .env
     environment:
       HF_HOME: /data/huggingface
+      ASR_DEVICE: cpu
+      OMP_NUM_THREADS: "${ASR_CPU_THREADS:-2}"
+      MKL_NUM_THREADS: "${ASR_CPU_THREADS:-2}"
     ports:
       - "${ASR_BIND_HOST:-0.0.0.0}:${ASR_PORT:-8080}:8080"
     volumes:
       - hf_cache:/data/huggingface
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ["${ASR_GPU_ID:-0}"]
-              capabilities: [gpu]
     shm_size: 1gb
     security_opt:
       - no-new-privileges:true
