@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     asr_max_audio_seconds: int = Field(default=1800, ge=1, le=7200)
     asr_chunk_seconds: int = Field(default=25, ge=5, le=25)
     asr_decode_timeout_seconds: int = Field(default=120, ge=1, le=600)
+    asr_url_allowed_hosts: str = ''
+    asr_url_timeout_seconds: int = Field(default=60, ge=1, le=300)
 
     @field_validator('asr_api_key')
     @classmethod

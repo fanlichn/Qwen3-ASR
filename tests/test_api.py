@@ -112,6 +112,37 @@ def test_required_fields_and_empty_upload(api):
     assert not engine.calls
 
 
+def test_url_input_passes_downloaded_audio_to_existing_engine(api, monkeypatch):
+    client, engine, _ = api
+
+    def download(url, path, settings):
+        assert url == 'https://audio.example.com/a.mp3'
+        path.write_bytes(b'downloaded audio')
+
+    monkeypatch.setattr('app.main.download_audio', download)
+    response = client.post('/v1/audio/transcriptions', headers=AUTH,
+                           data={'model': 'whisper-1', 'url': 'https://audio.example.com/a.mp3'})
+    assert response.status_code == 200
+    assert engine.calls[0][0] == b'downloaded audio'
+    assert not engine.paths[0].exists()
+
+
+def test_url_and_file_are_mutually_exclusive(api):
+    client, engine, _ = api
+    assert upload(client, {'url': 'https://audio.example.com/a.mp3'}).status_code == 400
+    assert not engine.calls
+
+
+def test_url_authentication_and_configuration(api):
+    client, engine, _ = api
+    data = {'model': 'whisper-1', 'url': 'https://audio.example.com/a.mp3'}
+    assert client.post('/v1/audio/transcriptions', data=data).status_code == 401
+    response = client.post('/v1/audio/transcriptions', headers=AUTH, data=data)
+    assert response.status_code == 400
+    assert 'configure ASR_URL_ALLOWED_HOSTS' in response.json()['error']['message']
+    assert not engine.calls
+
+
 def test_upload_limits_and_auth_before_parsing(api):
     client, engine, _ = api
     assert upload(client, content=b'a' * (1024 * 1024 + 1)).status_code == 413

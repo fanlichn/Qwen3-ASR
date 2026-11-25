@@ -13,6 +13,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import Settings
 from .qwen_asr import AudioTooLong, InvalidAudio, LANGUAGE_NAMES, QwenTranscriber
+from .remote_audio import download_audio
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ def create_app(settings: Settings | None = None, transcriber=None) -> FastAPI:
 
     @application.exception_handler(RequestValidationError)
     async def validation_error(request, exc):
-        return JSONResponse(error_body('Invalid form fields; file and model are required', 400), 400)
+        return JSONResponse(error_body('Invalid form fields; model and either file or url are required', 400), 400)
 
     @application.get('/healthz')
     def health():
@@ -122,8 +123,9 @@ def create_app(settings: Settings | None = None, transcriber=None) -> FastAPI:
 
     @application.post('/v1/audio/transcriptions')
     def transcription(
-        file: Annotated[UploadFile, File()],
         model: Annotated[str, Form()],
+        file: Annotated[UploadFile | None, File()] = None,
+        url: Annotated[str | None, Form()] = None,
         language: Annotated[str | None, Form()] = None,
         prompt: Annotated[str, Form()] = '',
         response_format: Annotated[str, Form()] = 'json',
@@ -133,6 +135,8 @@ def create_app(settings: Settings | None = None, transcriber=None) -> FastAPI:
     ):
         if not application.state.ready:
             raise HTTPException(503, 'The speech recognition model is not ready')
+        if (file is not None) == bool(url):
+            raise HTTPException(400, 'Provide exactly one of file or url')
         if model not in {settings.asr_model_name, 'whisper-1'}:
             raise HTTPException(400, 'Unknown model; see GET /v1/models')
         if response_format not in {'json', 'text', 'verbose_json', 'srt', 'vtt'}:
@@ -152,15 +156,18 @@ def create_app(settings: Settings | None = None, transcriber=None) -> FastAPI:
         try:
             with TemporaryDirectory(prefix='asr-') as directory:
                 audio_path = Path(directory) / 'upload.audio'
-                count = 0
-                with audio_path.open('wb') as destination:
-                    while chunk := file.file.read(1024 * 1024):
-                        count += len(chunk)
-                        if count > settings.asr_max_upload_mb * 1024 * 1024:
-                            raise HTTPException(413, 'Audio file exceeds ASR_MAX_UPLOAD_MB')
-                        destination.write(chunk)
-                if not count:
-                    raise HTTPException(400, 'The audio file is empty')
+                if url:
+                    download_audio(url, audio_path, settings)
+                else:
+                    count = 0
+                    with audio_path.open('wb') as destination:
+                        while chunk := file.file.read(1024 * 1024):
+                            count += len(chunk)
+                            if count > settings.asr_max_upload_mb * 1024 * 1024:
+                                raise HTTPException(413, 'Audio file exceeds ASR_MAX_UPLOAD_MB')
+                            destination.write(chunk)
+                    if not count:
+                        raise HTTPException(400, 'The audio file is empty')
                 result = engine.transcribe(str(audio_path), language=language, prompt=prompt)
         except AudioTooLong:
             raise HTTPException(413, 'Audio exceeds ASR_MAX_AUDIO_SECONDS') from None
@@ -173,7 +180,8 @@ def create_app(settings: Settings | None = None, transcriber=None) -> FastAPI:
             raise HTTPException(500, 'Speech recognition failed; check service device and model status') from None
         finally:
             application.state.inference_slot.release()
-            file.file.close()
+            if file is not None:
+                file.file.close()
         if response_format == 'json':
             return {'text': result['text']}
         if response_format == 'text':

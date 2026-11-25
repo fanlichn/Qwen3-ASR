@@ -75,7 +75,32 @@ unset ASR_TEST_KEY
 {"text":"你好，这是一段录音。"}
 ```
 
-`whisper-1` 是网关兼容别名，实际运行的仍是 Qwen3-ASR；也接受 `model=qwen3-asr-1.7b`。MP3、WAV、M4A、FLAC、OGG 等通过 FFmpeg 解码，不根据扩展名判断。只接受上传文件，不接受远程录音 URL。
+`whisper-1` 是网关兼容别名，实际运行的仍是 Qwen3-ASR；也接受 `model=qwen3-asr-1.7b`。MP3、WAV、M4A、FLAC、OGG 等通过 FFmpeg 解码，不根据扩展名判断。
+
+### 远程录音 URL
+
+本服务可在同一接口中接受 `url`，与 `file` 二选一。先在 `.env` 配置允许下载的精确主机名，例如：
+
+```dotenv
+ASR_URL_ALLOWED_HOSTS=audio.example.com
+ASR_URL_TIMEOUT_SECONDS=60
+```
+
+多个主机名用逗号分隔；留空时禁用 URL 输入。修改配置后执行 `docker compose up -d --force-recreate api`。直接调用语音服务（使用本服务密钥）：
+
+```bash
+read -rsp 'ASR service key: ' ASR_TEST_KEY; echo
+curl -sS https://你的语音服务域名/v1/audio/transcriptions \
+  -H "Authorization: Bearer ${ASR_TEST_KEY}" \
+  -F 'model=whisper-1' \
+  -F 'language=zh' \
+  --form-string 'url=https://audio.example.com/example.mp3'
+unset ASR_TEST_KEY
+```
+
+仅支持 HTTPS 443、白名单内的主机，DNS 必须全部解析为公网地址，连接时固定已验证的 IP 并校验证书。下载不跟随重定向，也不转发调用方的密钥或 Cookie；文件大小沿用上传上限，下载后继续校验音频时长。私有对象请使用可下载的签名 URL；不要将签名查询参数写入日志。
+
+**网关兼容范围：** New API `v1.0.0-rc.15` 的 `relay/channel/openai/adaptor.go` 在转发音频前强制要求 `file`，因此只升级本服务，不能让该网关接受仅带 `url` 的请求。要保持通过 New API 调用，需要同步适配其下载 / 文件转发流程，或者由调用程序先下载再以 `file` 上传。该版本源码依据：[ConvertAudioRequest](https://github.com/QuantumNous/new-api/blob/v1.0.0-rc.15/relay/channel/openai/adaptor.go)。
 
 ## 3. 接入 New API
 
@@ -112,7 +137,8 @@ New API、前置代理及调用程序需要允许相应上传大小，并将超�
 
 | 参数 | 说明 |
 | --- | --- |
-| `file` | 必填，multipart 音频文件 |
+| `file` | multipart 音频文件，与 `url` 二选一 |
+| `url` | HTTPS 录音地址，与 `file` 二选一；主机须在白名单中 |
 | `model` | 必填，`whisper-1` 或 `ASR_MODEL_NAME` |
 | `language` | 可选，`zh`、`en` 等；不传则自动检测 |
 | `prompt` | 可选，上下文 / 术语提示，最多 2000 字符 |
@@ -134,6 +160,7 @@ New API、前置代理及调用程序需要允许相应上传大小，并将超�
 | `app/server.py` | 生产启动入口 |
 | `app/main.py` | API、鉴权、上传限制、并发保护、输出格式 |
 | `app/qwen_asr.py` | FFmpeg 解码、VAD 分段、本地 Qwen 推理 |
+| `app/remote_audio.py` | 受限 HTTPS 下载、白名单及 DNS 地址固定 |
 | `app/config.py` | `.env` 配置及校验 |
 | `Dockerfile` / `docker-compose.yml` | Ubuntu 22.04 CPU 容器部署 |
 | `requirements-linux.lock` | Linux x86_64 / Python 3.10 固定依赖版本 |
