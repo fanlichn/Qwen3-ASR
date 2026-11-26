@@ -5,7 +5,7 @@ import subprocess
 import time
 
 from .config import Settings
-from .progress import progress
+from .progress import configure_model_logging, progress
 
 SAMPLE_RATE = 16000
 LANGUAGE_CODES = {
@@ -36,6 +36,8 @@ class QwenTranscriber:
         import torch
         from qwen_asr import Qwen3ASRModel
 
+        configure_model_logging()
+
         if self.settings.asr_device.startswith('cuda:'):
             index = int(self.settings.asr_device.split(':')[1])
             if not torch.cuda.is_available() or index >= torch.cuda.device_count():
@@ -47,11 +49,6 @@ class QwenTranscriber:
             self.settings.asr_model_path, dtype=dtype, device_map=self.settings.asr_device,
             attn_implementation='sdpa', max_inference_batch_size=1, max_new_tokens=512,
         )
-        # Use exactly the default EOS padding value explicitly to avoid a warning per segment.
-        generation = self.model.model.generation_config
-        if generation.pad_token_id is None and generation.eos_token_id is not None:
-            eos = generation.eos_token_id
-            generation.pad_token_id = eos[0] if isinstance(eos, (list, tuple)) else eos
 
     def decode(self, path: str):
         import numpy as np

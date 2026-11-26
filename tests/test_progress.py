@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
-from app.progress import TaskProgress, current_task
+from app.progress import DefaultPaddingFilter, TaskProgress, configure_model_logging, current_task
 from app.qwen_asr import QwenTranscriber
 
 KEY = 'test-only-not-a-production-key-1234567890'
@@ -96,13 +96,22 @@ def test_heartbeat_reports_active_phase_without_waiting(caplog):
     assert '仍在处理' in caplog.text and '识别第2/4段' in caplog.text and task.id in caplog.text
 
 
-@pytest.mark.parametrize('eos,pad,expected', [(151645, None, 151645), ([151645, 151643], None, 151645), (151645, 7, 7)])
-def test_padding_uses_same_default_as_transformers(monkeypatch, eos, pad, expected):
-    generation = SimpleNamespace(eos_token_id=eos, pad_token_id=pad)
-    wrapped = SimpleNamespace(model=SimpleNamespace(generation_config=generation))
-    monkeypatch.setitem(sys.modules, 'torch', SimpleNamespace(float32='float32'))
-    monkeypatch.setitem(sys.modules, 'qwen_asr', SimpleNamespace(
-        Qwen3ASRModel=SimpleNamespace(from_pretrained=lambda *a, **k: wrapped)))
-    engine = QwenTranscriber(Settings(_env_file=None, asr_api_key=KEY))
-    engine.load()
-    assert generation.pad_token_id == expected
+@pytest.mark.parametrize('level,message,keep', [
+    (logging.WARNING, 'Setting `pad_token_id` to `eos_token_id`:151645 for open-end generation.', False),
+    (logging.WARNING, 'Another model warning', True),
+    (logging.ERROR, 'Model failed', True),
+])
+def test_only_repeated_default_padding_notice_is_filtered(level, message, keep):
+    record = logging.LogRecord('transformers.generation.utils', level, '', 0, message, (), None)
+    assert DefaultPaddingFilter().filter(record) == keep
+
+
+def test_model_logging_configuration_is_idempotent():
+    model_logger = logging.getLogger('transformers.generation.utils')
+    original = model_logger.filters[:]
+    try:
+        configure_model_logging()
+        configure_model_logging()
+        assert sum(isinstance(item, DefaultPaddingFilter) for item in model_logger.filters) == 1
+    finally:
+        model_logger.filters[:] = original

@@ -10,6 +10,17 @@ logger = logging.getLogger('uvicorn.error.asr')
 current_task = ContextVar('asr_log_task', default=None)
 
 
+class DefaultPaddingFilter(logging.Filter):
+    def filter(self, record):
+        return not record.getMessage().startswith('Setting `pad_token_id` to `eos_token_id`:')
+
+
+def configure_model_logging():
+    model_logger = logging.getLogger('transformers.generation.utils')
+    if not any(isinstance(item, DefaultPaddingFilter) for item in model_logger.filters):
+        model_logger.addFilter(DefaultPaddingFilter())
+
+
 class TaskProgress:
     def __init__(self):
         self.id = uuid4().hex[:12]
