@@ -1,5 +1,6 @@
 import hmac
 import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -14,8 +15,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .config import Settings
 from .qwen_asr import AudioTooLong, InvalidAudio, LANGUAGE_NAMES, QwenTranscriber
 from .remote_audio import download_audio
+from .progress import TaskProgress
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('uvicorn.error.asr')
 
 
 def error_body(message: str, status: int):
@@ -82,19 +84,24 @@ def create_app(settings: Settings | None = None, transcriber=None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application):
         application.state.ready = False
+        load_started = time.monotonic()
+        logger.info('服务启动 | 开始加载语音模型 | 设备=%s', settings.asr_device)
         try:
             engine.load()
         except Exception as exc:
             logger.error('ASR startup failed (%s)', type(exc).__name__)
             raise RuntimeError('ASR startup failed; check device availability and model files') from None
         application.state.ready = True
+        logger.info('服务就绪 | 模型加载耗时=%.1f秒 | 同时处理任务数=1', time.monotonic() - load_started)
         yield
         application.state.ready = False
+        logger.info('服务已关闭')
 
     application = FastAPI(title='Speech to Text API', version='1.0.0', lifespan=lifespan,
                           docs_url=None, redoc_url=None, openapi_url=None)
     application.state.ready = False
     application.state.inference_slot = BoundedSemaphore(1)
+    application.state.active_task = None
     application.add_middleware(RequestGuard, settings=settings)
 
     @application.exception_handler(StarletteHTTPException)
@@ -151,14 +158,25 @@ def create_app(settings: Settings | None = None, transcriber=None) -> FastAPI:
             raise HTTPException(400, 'Only temperature=0 and stream=false are supported')
         if timestamp_granularities and any(item != 'segment' for item in timestamp_granularities):
             raise HTTPException(400, 'Only segment timestamps are supported')
+        task = TaskProgress()
         if not application.state.inference_slot.acquire(blocking=False):
+            active = application.state.active_task
+            task.emit('请求被拒绝 | HTTP=503 | 服务忙碌 | 正在处理任务=%s', active.id if active else '-')
             raise HTTPException(503, 'Speech recognition is busy; retry later', headers={'Retry-After': '5'})
+        application.state.active_task = task
         try:
+            task.start()
+            task.emit('开始处理 | 输入来源=%s', '远程链接' if url else '上传文件')
             with TemporaryDirectory(prefix='asr-') as directory:
                 audio_path = Path(directory) / 'upload.audio'
+                input_started = time.monotonic()
                 if url:
+                    task.emit('开始下载远程录音', phase='下载录音')
                     download_audio(url, audio_path, settings)
+                    task.emit('下载完成 | 大小=%.2fMiB | 下载耗时=%.1f秒',
+                              audio_path.stat().st_size / 1024**2, time.monotonic() - input_started)
                 else:
+                    task.emit('正在接收上传文件', phase='接收文件')
                     count = 0
                     with audio_path.open('wb') as destination:
                         while chunk := file.file.read(1024 * 1024):
@@ -168,17 +186,28 @@ def create_app(settings: Settings | None = None, transcriber=None) -> FastAPI:
                             destination.write(chunk)
                     if not count:
                         raise HTTPException(400, 'The audio file is empty')
+                    task.emit('文件接收完成 | 大小=%.2fMiB', count / 1024**2)
                 result = engine.transcribe(str(audio_path), language=language, prompt=prompt)
+                task.emit('任务完成 | 录音时长=%.1f秒 | 输出段数=%d | 文字字符数=%d | 总耗时=%.1f秒',
+                          result['duration'], len(result['segments']), len(result['text']),
+                          time.monotonic() - task.started, phase='完成')
         except AudioTooLong:
+            task.emit('任务失败 | HTTP=413 | 原因=录音时长超限 | 已耗时=%.1f秒', time.monotonic() - task.started)
             raise HTTPException(413, 'Audio exceeds ASR_MAX_AUDIO_SECONDS') from None
         except InvalidAudio as exc:
+            task.emit('任务失败 | HTTP=400 | 原因=音频解码失败 | 已耗时=%.1f秒', time.monotonic() - task.started)
             raise HTTPException(400, str(exc)) from None
-        except HTTPException:
+        except HTTPException as exc:
+            task.emit('任务失败 | HTTP=%d | 阶段=%s | 已耗时=%.1f秒',
+                      exc.status_code, task.phase, time.monotonic() - task.started)
             raise
         except Exception as exc:
-            logger.error('ASR inference failed (%s)', type(exc).__name__)
+            logger.error('任务=%s 任务失败 | 异常类型=%s | 阶段=%s | 已耗时=%.1f秒',
+                         task.id, type(exc).__name__, task.phase, time.monotonic() - task.started)
             raise HTTPException(500, 'Speech recognition failed; check service device and model status') from None
         finally:
+            task.close()
+            application.state.active_task = None
             application.state.inference_slot.release()
             if file is not None:
                 file.file.close()
